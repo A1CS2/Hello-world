@@ -16,6 +16,9 @@ struct MainWindowView: View {
     @State private var showGitPanel = true
     @State private var showAIPanel = true
     @State private var showTerminal = true
+    @State private var showCommandPalette = false
+    @State private var showMultiFileSearch = false
+    @State private var showMetricsDashboard = false
 
     var body: some View {
         ZStack {
@@ -69,12 +72,62 @@ struct MainWindowView: View {
                         .frame(height: 250)
                 }
             }
+
+            // Command Palette Overlay
+            if showCommandPalette {
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        showCommandPalette = false
+                    }
+
+                CommandPalette(isPresented: $showCommandPalette)
+                    .transition(.scale.combined(with: .opacity))
+            }
+
+            // Multi-File Search Overlay
+            if showMultiFileSearch {
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        showMultiFileSearch = false
+                    }
+
+                MultiFileSearchView(isPresented: $showMultiFileSearch)
+                    .transition(.scale.combined(with: .opacity))
+            }
+
+            // Metrics Dashboard Overlay
+            if showMetricsDashboard {
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        showMetricsDashboard = false
+                    }
+
+                VisualizationDashboard()
+                    .frame(width: 900, height: 700)
+                    .transition(.scale.combined(with: .opacity))
+            }
         }
         .onAppear {
             layoutManager.loadLayout(appState.activeLayout)
         }
         .onDisappear {
             appState.saveSession()
+        }
+        // Keyboard shortcuts for Phase 2 features
+        .onKeyPress(.init("p", modifiers: [.command, .shift])) {
+            showCommandPalette.toggle()
+            return .handled
+        }
+        .onKeyPress(.init("f", modifiers: [.command, .shift])) {
+            showMultiFileSearch.toggle()
+            return .handled
+        }
+        .onKeyPress(.init("m", modifiers: [.command, .shift])) {
+            showMetricsDashboard.toggle()
+            return .handled
         }
     }
 }
@@ -104,6 +157,8 @@ struct TopBar: View {
                 QuickActionButton(icon: "play.circle", action: {})
                 QuickActionButton(icon: "hammer.circle", action: {})
                 QuickActionButton(icon: "ant.circle", action: {})
+                QuickActionButton(icon: "chart.xyaxis.line", action: {})
+                QuickActionButton(icon: "command", action: {})
             }
 
             Spacer()
