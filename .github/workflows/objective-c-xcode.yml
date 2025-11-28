@@ -14,17 +14,83 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set Default Scheme
+
+      - name: Locate Xcode project/workspace
+        id: locate
         run: |
-          scheme_list=$(xcodebuild -list -json | tr -d "\n")
-          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
-          echo $default | cat >default
-          echo Using default scheme: $default
+          set -e
+          echo "Searching for .xcworkspace or .xcodeproj in the repository (maxdepth 4)..."
+          workspace=$(find . -maxdepth 4 -name '*.xcworkspace' -print -quit || true)
+          project=$(find . -maxdepth 4 -name '*.xcodeproj' -print -quit || true)
+          if [ -n "$workspace" ]; then
+            file="$workspace"
+            type="workspace"
+          elif [ -n "$project" ]; then
+            file="$project"
+            type="project"
+          elif [ -f Package.swift ]; then
+            file="Package.swift"
+            type="package"
+          else
+            echo "::error::No Xcode project, workspace, or Swift package found in the repository."
+            echo "Repository root listing:"
+            ls -la
+            exit 1
+          fi
+          # Normalize path (remove leading ./)
+          file=$(echo "$file" | sed 's|^\./||')
+          echo "file=$file" >> $GITHUB_OUTPUT
+          echo "type=$type" >> $GITHUB_OUTPUT
+          echo "Found $type: $file"
+
+      - name: Set default scheme
+        id: scheme
+        run: |
+          set -e
+          file="${{ steps.locate.outputs.file }}"
+          type="${{ steps.locate.outputs.type }}"
+          echo "Using $type: $file"
+          list=""
+          if [ "$type" = "workspace" ]; then
+            list=$(xcodebuild -workspace "$file" -list -json 2>/dev/null || true)
+          elif [ "$type" = "project" ]; then
+            list=$(xcodebuild -project "$file" -list -json 2>/dev/null || true)
+          else
+            list=$(xcodebuild -list -json 2>/dev/null || true)
+          fi
+
+          if [ -z "$list" ]; then
+            echo "No schemes/targets were returned by xcodebuild -list -json"
+            echo "scheme=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          scheme=$(echo "$list" | ruby -e "require 'json'; j=JSON.parse(STDIN.read); if j['workspace'] && j['workspace']['schemes'] && j['workspace']['schemes'][0]; puts j['workspace']['schemes'][0]; elsif j['project'] && j['project']['targets'] && j['project']['targets'][0]; puts j['project']['targets'][0]; end")
+          scheme="${scheme:-}"
+          echo "scheme=$scheme" >> $GITHUB_OUTPUT
+          echo "Default scheme: ${scheme:-<none>}"
+
       - name: Build
-        env:
-          scheme: ${{ 'default' }}
         run: |
-          if [ $scheme = default ]; then scheme=$(cat default); fi
-          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
-          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
-          xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
+          set -e
+          file="${{ steps.locate.outputs.file }}"
+          type="${{ steps.locate.outputs.type }}"
+          scheme="${{ steps.scheme.outputs.scheme }}"
+
+          if [ "$type" = "package" ]; then
+            echo "Building Swift package..."
+            swift build
+            exit 0
+          fi
+
+          if [ -z "$scheme" ]; then
+            echo "::error::No scheme detected. Please share your schemes (Product → Scheme → Manage Schemes → check 'Shared') or set a scheme explicitly."
+            exit 1
+          fi
+
+          echo "Building $type: $file with scheme: $scheme"
+          if [ "$type" = "workspace" ]; then
+            xcodebuild clean build analyze -workspace "$file" -scheme "$scheme" | xcpretty && exit ${PIPESTATUS[0]}
+          else
+            xcodebuild clean build analyze -project "$file" -scheme "$scheme" | xcpretty && exit ${PIPESTATUS[0]}
+          fi
