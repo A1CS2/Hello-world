@@ -65,9 +65,12 @@ jobs:
           if [ -n "$workspace" ]; then
             filetype_parameter="workspace"
             file_to_build="$workspace"
-          else
+          elif [ -n "$project" ]; then
             filetype_parameter="project"
             file_to_build="$project"
+          else
+            echo "::error::No .xcworkspace or .xcodeproj found for build step."
+            exit 1
           fi
 
           echo "Building $file_to_build (type: $filetype_parameter) scheme: $scheme"
