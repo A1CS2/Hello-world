@@ -14,17 +14,65 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set Default Scheme
+
+      - name: Detect project/workspace and pick default scheme
         run: |
-          scheme_list=$(xcodebuild -list -json | tr -d "\n")
-          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
-          echo $default | cat >default
-          echo Using default scheme: $default
+          set -euo pipefail
+          # Adjust maxdepth if your Xcode files are deeper in the tree
+          workspace=$(find . -maxdepth 4 -type f -iname '*.xcworkspace' -print -quit || true)
+          project=$(find . -maxdepth 4 -type f -iname '*.xcodeproj' -print -quit || true)
+
+          if [ -n "$workspace" ]; then
+            filetype_parameter="workspace"
+            file_to_build="$workspace"
+          elif [ -n "$project" ]; then
+            filetype_parameter="project"
+            file_to_build="$project"
+          else
+            echo "::error::No .xcworkspace or .xcodeproj found in the repository. Aborting."
+            ls -R .
+            exit 1
+          fi
+
+          echo "Found $file_to_build (type: $filetype_parameter)"
+          # Request JSON listing for that container
+          scheme_list=$(xcodebuild -list -json -"$filetype_parameter" "$file_to_build" 2>/dev/null || true)
+
+          if [ -z "$scheme_list" ]; then
+            echo "::error::xcodebuild -list returned no JSON for $file_to_build"
+            echo "Command: xcodebuild -list -$filetype_parameter $file_to_build"
+            exit 1
+          fi
+
+          # Safely parse JSON and pick a scheme. Prefer top-level 'schemes', fallback to project targets.
+          default_scheme=$(printf '%s' "$scheme_list" | ruby -e "require 'json'; j = JSON.parse(STDIN.read); s = j['schemes'] || (j['project'] && j['project']['targets']); puts (s && s[0]) || ''")
+          if [ -z "$default_scheme" ]; then
+            echo "::error::Could not determine a scheme from xcodebuild output"
+            printf '%s\n' "$scheme_list"
+            exit 1
+          fi
+
+          echo "$default_scheme" > default_scheme
+          echo "Using default scheme: $default_scheme"
+
       - name: Build
-        env:
-          scheme: ${{ 'default' }}
         run: |
-          if [ $scheme = default ]; then scheme=$(cat default); fi
-          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
-          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
-          xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
+          set -euo pipefail
+          scheme=$(cat default_scheme)
+          # Re-detect the container so this step is self-contained
+          workspace=$(find . -maxdepth 4 -type f -iname '*.xcworkspace' -print -quit || true)
+          project=$(find . -maxdepth 4 -type f -iname '*.xcodeproj' -print -quit || true)
+          if [ -n "$workspace" ]; then
+            filetype_parameter="workspace"
+            file_to_build="$workspace"
+          elif [ -n "$project" ]; then
+            filetype_parameter="project"
+            file_to_build="$project"
+          else
+            echo "::error::No .xcworkspace or .xcodeproj found for build step."
+            exit 1
+          fi
+
+          echo "Building $file_to_build (type: $filetype_parameter) scheme: $scheme"
+          xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" | xcpretty
+          exit ${PIPESTATUS[0]}
