@@ -119,7 +119,7 @@ When implementing new features, consider these existing shortcuts:
 - `⌘N` - New File
 - `⌘O` - Open Folder
 - `⌘B` - Toggle File Explorer
-- `⌘`` ` - Toggle Terminal
+- ⌘` (Command + Backtick) - Toggle Terminal
 - `⌘⇧I` - Toggle AI Panel
 - `⌘K` - Ask AI
 - `⌘⇧P` - Command Palette
@@ -269,7 +269,8 @@ Key documentation files:
 
 ## Future Considerations
 
-### Phase Roadmap
+### Phase Roadmap (Current Status)
+Based on PROJECT_HANDOFF.md, all four phases have been completed:
 - **Phase 1**: ✅ Complete - Foundation and core features
 - **Phase 2**: ✅ Complete - Advanced IDE capabilities (LSP, AI completion, debugging)
 - **Phase 3**: ✅ Complete - Plugin system and professional tools
